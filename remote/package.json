@@ -1,8 +1,8 @@
 {
-  "name": "tunnelfs",
-  "displayName": "TunnelFS",
-  "description": "Mount remote filesystems in macOS Finder via VS Code Remote Tunnels",
-  "version": "0.0.1",
+  "name": "tunnelfs-remote",
+  "displayName": "TunnelFS Remote",
+  "description": "Remote component for TunnelFS — serves filesystem via WebDAV over the tunnel",
+  "version": "0.0.2",
   "publisher": "twilightcoders",
   "license": "MIT",
   "repository": {
@@ -16,31 +16,23 @@
     "Other"
   ],
   "extensionKind": [
-    "ui"
+    "workspace"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "tunnelfs.mount",
-        "title": "TunnelFS: Mount Remote Filesystem in Finder"
-      },
-      {
-        "command": "tunnelfs.unmount",
-        "title": "TunnelFS: Unmount Remote Filesystem"
-      },
-      {
-        "command": "tunnelfs.status",
-        "title": "TunnelFS: Show Connection Status"
-      },
-      {
-        "command": "tunnelfs.forceActivate",
-        "title": "TunnelFS: Force Activate (Debug)"
+    "configuration": {
+      "title": "TunnelFS",
+      "properties": {
+        "tunnelfs.root": {
+          "type": "string",
+          "default": "",
+          "description": "Root directory to serve. Defaults to the user's home directory."
+        }
       }
-    ]
+    }
   },
   "scripts": {
     "compile": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",

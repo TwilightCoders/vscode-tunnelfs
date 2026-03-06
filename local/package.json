@@ -1,0 +1,53 @@
+{
+  "name": "tunnelfs",
+  "displayName": "TunnelFS",
+  "description": "Mount remote filesystems in macOS Finder via VS Code Remote Tunnels",
+  "version": "0.0.2",
+  "publisher": "twilightcoders",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TwilightCoders/vscode-tunnelfs"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tunnelfs.mount",
+        "title": "TunnelFS: Mount Remote Filesystem in Finder"
+      },
+      {
+        "command": "tunnelfs.unmount",
+        "title": "TunnelFS: Unmount Remote Filesystem"
+      },
+      {
+        "command": "tunnelfs.status",
+        "title": "TunnelFS: Show Connection Status"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "npm run compile -- --watch",
+    "package": "npm run compile -- --minify",
+    "vscode:prepublish": "npm run package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

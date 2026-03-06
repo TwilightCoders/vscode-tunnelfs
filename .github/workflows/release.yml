@@ -18,11 +18,17 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm ci
+      - name: Build remote extension
+        working-directory: remote
+        run: npm ci && npx @vscode/vsce package
 
-      - run: npx @vscode/vsce package
+      - name: Build local extension
+        working-directory: local
+        run: npm ci && npx @vscode/vsce package
 
-      - name: Upload VSIX to GitHub Release
+      - name: Upload VSIXs to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: '*.vsix'
+          files: |
+            remote/*.vsix
+            local/*.vsix

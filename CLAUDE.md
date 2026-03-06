@@ -4,54 +4,61 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TunnelFS is a VS Code extension that mounts remote filesystems in macOS Finder when connected via VS Code Remote Tunnels. It runs a local WebDAV server backed by `vscode.workspace.fs`, which transparently proxies remote file operations through the existing tunnel — no remote-side component needed.
+TunnelFS is a pair of VS Code extensions that mount the remote filesystem in macOS Finder when connected via VS Code Remote Tunnels. A WebDAV server on the remote serves files directly from disk; the local extension forwards the port through the tunnel and mounts it in Finder.
 
 ## Build Commands
 
 ```bash
-npm run compile    # Bundle with esbuild → dist/extension.js
-npm run watch      # Watch mode
-npm run package    # Minified production bundle
+# Remote extension
+cd remote && npm run compile
+
+# Local extension
+cd local && npm run compile
 ```
 
-To test: press F5 in VS Code to launch an Extension Development Host. The extension only activates during tunnel connections (`vscode.env.remoteName === 'tunnel'`).
+Each package has `compile`, `watch`, and `package` scripts. CI builds both and attaches `.vsix` files to GitHub releases on version tags.
 
 ## Architecture
 
-**Single-side design:** The extension runs entirely on the UI (local) side. No remote extension host code.
+**Two extensions, one repo.** VS Code only runs one instance of an extension per window, so code on both sides requires two packages.
 
-1. **`src/extension.ts`** — Entry point. Guards activation behind tunnel + macOS checks. Registers commands, manages status bar, orchestrates mount lifecycle.
+### `remote/` — TunnelFS Remote (`extensionKind: ["workspace"]`)
 
-2. **`src/server.ts`** — Minimal WebDAV server (Node `http` module, no dependencies). Handles OPTIONS/PROPFIND/GET/HEAD. Backs all file operations with `vscode.workspace.fs` which transparently reads remote files through the tunnel. Generates Finder-compatible DAV XML responses. Session auth via random token + HTTP Basic Auth.
+Runs on the remote host. Starts a read-only WebDAV server with direct `fs` access (no vscode.workspace.fs overhead).
 
-3. **`src/mount.ts`** — macOS mount/unmount via `mount_webdav` (fallback: osascript). Mount point in `$TMPDIR/tunnelfs-<name>`. Handles stale mount cleanup on activation.
+- **`src/extension.ts`** — Reads `tunnelfs.root` setting (defaults to `os.homedir()`), starts server, forwards port via `vscode.env.asExternalUri`, registers `tunnelfs-remote.getInfo` command.
+- **`src/server.ts`** — Minimal WebDAV server (Node `http`/`fs` modules). Handles OPTIONS/PROPFIND/GET/HEAD. Path traversal protection. Finder-compatible DAV XML responses.
 
-### Path Resolution
+### `local/` — TunnelFS (`extensionKind: ["ui"]`)
 
-- **Single workspace folder:** served directly at WebDAV root `/`
-- **Multiple folders:** virtual root at `/` lists folders; each folder at `/<FolderName>/`
+Runs on the local Mac. Queries the remote extension, mounts the forwarded WebDAV endpoint in Finder.
 
-### Auth Model
+- **`src/extension.ts`** — Activates on tunnel connections. Calls `tunnelfs-remote.getInfo` (with retry) to get the forwarded URL. Mounts in Finder. Status bar indicator.
+- **`src/mount.ts`** — `mount_webdav -S -v` with osascript fallback. Mount point under `/Volumes/<host - root>`. Stale mount cleanup.
 
-Random 32-byte hex token generated per session. Required via HTTP Basic Auth (`tunnelfs:<token>`). Credentials embedded in the mount URL. Localhost-only server binding.
+### Cross-extension Communication
+
+The remote extension registers command `tunnelfs-remote.getInfo` which returns `{ url, root }`. The local extension calls it via `vscode.commands.executeCommand`. Commands registered by workspace extensions are callable from the UI side.
 
 ## Extension Commands
 
-| Command | Description |
-|---------|-------------|
-| `tunnelfs.mount` | Mount remote filesystem in Finder |
-| `tunnelfs.unmount` | Unmount |
-| `tunnelfs.status` | Show mount state and port info |
+| Command | Side | Description |
+|---------|------|-------------|
+| `tunnelfs-remote.getInfo` | Remote | Returns forwarded WebDAV URL and root path |
+| `tunnelfs.mount` | Local | Mount remote filesystem in Finder |
+| `tunnelfs.unmount` | Local | Unmount |
+| `tunnelfs.status` | Local | Show mount state |
+
+## Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `tunnelfs.root` | `""` (home dir) | Root directory to serve via WebDAV |
 
 ## Key Constraints
 
-- **macOS-only** client side (`process.platform === 'darwin'`). Extension no-ops elsewhere.
+- **macOS-only** local side. Extension no-ops on other platforms.
 - **Read-only** — only GET/HEAD/PROPFIND. No write-back yet.
-- **Tunnel-only** — checks `vscode.env.remoteName === 'tunnel'`. Inert for SSH/container remotes.
-- TypeScript strict mode, ES2020 target, esbuild bundler, no runtime dependencies beyond Node builtins + vscode API.
-
-## Open Questions
-
-1. Does macOS `mount_webdav` work with `http://` or does it require HTTPS?
-2. Performance of `vscode.workspace.fs` as a WebDAV backend for large directories.
-3. Stale mount cleanup reliability after crashes.
+- **Tunnel-only** — local extension checks `vscode.env.remoteName === 'tunnel'`.
+- TypeScript strict mode, ES2020 target, esbuild bundler, no runtime deps.
+- Two `.vsix` files per release: `tunnelfs-remote` (install on remote) + `tunnelfs` (install on laptop).

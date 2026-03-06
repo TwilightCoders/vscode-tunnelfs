@@ -1,38 +1,19 @@
 import * as vscode from 'vscode';
-import { WebDAVServer } from './server';
 import { mountVolume, unmountVolume, isMounted, cleanStaleMounts, getMountPoint } from './mount';
 import { exec } from 'child_process';
 
-let server: WebDAVServer | undefined;
+interface RemoteInfo {
+  url: string;
+  root: string;
+}
+
 let statusBarItem: vscode.StatusBarItem | undefined;
 let outputChannel: vscode.OutputChannel;
 
 type StatusState = 'mounted' | 'disconnected' | 'connecting' | 'error';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const isTunnel = vscode.env.remoteName === 'tunnel';
-
-  // Always register the force-activate command so it's available from the command palette
-  context.subscriptions.push(
-    vscode.commands.registerCommand('tunnelfs.forceActivate', () => bootstrap(context)),
-  );
-
-  if (!isTunnel) {
-    return;
-  }
-
-  if (process.platform !== 'darwin') {
-    vscode.window.showWarningMessage('TunnelFS currently supports macOS only.');
-    return;
-  }
-
-  await bootstrap(context);
-}
-
-async function bootstrap(context: vscode.ExtensionContext): Promise<void> {
-  if (outputChannel) {
-    // Already bootstrapped
-    await doMount();
+  if (vscode.env.remoteName !== 'tunnel') {
     return;
   }
 
@@ -61,6 +42,20 @@ async function bootstrap(context: vscode.ExtensionContext): Promise<void> {
   await doMount();
 }
 
+async function getRemoteInfo(): Promise<RemoteInfo> {
+  // The remote extension may still be starting — retry a few times
+  for (let i = 0; i < 10; i++) {
+    try {
+      const info = await vscode.commands.executeCommand<RemoteInfo>('tunnelfs-remote.getInfo');
+      if (info?.url) return info;
+    } catch { /* command not registered yet */ }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error(
+    'TunnelFS Remote extension not responding. Is it installed on the remote host?',
+  );
+}
+
 async function doMount(): Promise<void> {
   if (await isMounted()) {
     vscode.window.showInformationMessage('TunnelFS: Already mounted.');
@@ -70,19 +65,18 @@ async function doMount(): Promise<void> {
   try {
     updateStatusBar('connecting');
 
-    if (!server) {
-      server = new WebDAVServer(outputChannel);
-    }
-    const port = await server.start();
+    outputChannel.appendLine('Querying remote extension for WebDAV info...');
+    const info = await getRemoteInfo();
+    outputChannel.appendLine(`Remote URL: ${info.url}, root: ${info.root}`);
 
-    // Auth disabled for now — server is localhost-only.
-    // macOS mount_webdav and osascript don't handle Basic Auth in URLs well.
-    const url = `http://localhost:${port}/`;
-    const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || 'remote';
+    // Build volume name from remote host + root directory
+    const remoteAuthority: string = (vscode.env as Record<string, unknown>).remoteAuthority as string || '';
+    const hostName = remoteAuthority.replace(/^tunnel\+/, '').replace(/\+.*$/, '') || 'remote';
+    const rootName = info.root.split('/').filter(Boolean).pop() || 'root';
+    const volumeName = `${hostName} - ${rootName}`;
 
-    outputChannel.appendLine(`Mounting ${workspaceName} via WebDAV on port ${port}...`);
-
-    const mountPoint = await mountVolume(url, workspaceName);
+    outputChannel.appendLine(`Mounting as "${volumeName}"...`);
+    const mountPoint = await mountVolume(info.url, volumeName);
 
     updateStatusBar('mounted');
     outputChannel.appendLine(`Mounted at ${mountPoint}`);
@@ -100,12 +94,6 @@ async function doMount(): Promise<void> {
 async function doUnmount(): Promise<void> {
   try {
     await unmountVolume();
-
-    if (server) {
-      await server.stop();
-      server = undefined;
-    }
-
     updateStatusBar('disconnected');
     vscode.window.showInformationMessage('TunnelFS: Unmounted.');
   } catch (err: unknown) {
@@ -116,10 +104,8 @@ async function doUnmount(): Promise<void> {
 
 function showStatus(): void {
   const mountPoint = getMountPoint();
-  if (mountPoint && server) {
-    vscode.window.showInformationMessage(
-      `TunnelFS: Mounted at ${mountPoint} (port ${server.port})`,
-    );
+  if (mountPoint) {
+    vscode.window.showInformationMessage(`TunnelFS: Mounted at ${mountPoint}`);
   } else {
     vscode.window.showInformationMessage('TunnelFS: Not mounted.');
   }
@@ -155,11 +141,5 @@ function updateStatusBar(state: StatusState): void {
 export async function deactivate(): Promise<void> {
   try {
     await unmountVolume();
-  } catch { /* best effort on shutdown */ }
-
-  if (server) {
-    try {
-      await server.stop();
-    } catch { /* best effort */ }
-  }
+  } catch { /* best effort */ }
 }

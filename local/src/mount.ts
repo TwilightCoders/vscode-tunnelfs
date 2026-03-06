@@ -1,7 +1,6 @@
 import { exec as execCb } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 const exec = promisify(execCb);
@@ -13,27 +12,41 @@ export function getMountPoint(): string | undefined {
 }
 
 export async function mountVolume(url: string, volumeName: string): Promise<string> {
-  const safeName = volumeName.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const mountPoint = path.join(os.tmpdir(), `tunnelfs-${safeName}`);
-  const errors: string[] = [];
+  const safeName = volumeName.replace(/[^a-zA-Z0-9_ -]/g, '_');
+  const mountPoint = path.join('/Volumes', safeName);
+
+  // Clean up stale mount point from a previous crash
+  try {
+    const stat = await fs.promises.stat(mountPoint);
+    if (stat.isDirectory()) {
+      if (await isMountedAt(mountPoint)) {
+        await exec(`umount "${mountPoint}"`, { timeout: 5000 });
+      }
+      await fs.promises.rmdir(mountPoint);
+    }
+  } catch { /* doesn't exist, fine */ }
 
   await fs.promises.mkdir(mountPoint, { recursive: true });
+  const errors: string[] = [];
 
-  // Strip credentials from URL for mount_webdav (it doesn't support them inline)
-  const parsed = new URL(url);
-  const bareUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  // Strategy 1: mount_webdav with -S (suppress UI) and -v (volume name for Finder)
+  try {
+    await exec(`mount_webdav -S -v "${safeName}" "${url}" "${mountPoint}"`, { timeout: 30000 });
+    currentMountPoint = mountPoint;
+    return mountPoint;
+  } catch (err: unknown) {
+    errors.push(`mount_webdav: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-  // Strategy 1: Finder's "Connect to Server" (handles credentials in URL)
+  // Strategy 2: Finder's "Connect to Server" via AppleScript
   try {
     await exec(
       `osascript -e 'mount volume "${url}"'`,
       { timeout: 30000 },
     );
-
-    // Give Finder a moment to register the mount
     await new Promise(r => setTimeout(r, 1000));
 
-    const found = await findMountByPort(url);
+    const found = await findMountByUrl(url);
     if (found) {
       currentMountPoint = found;
       return found;
@@ -42,16 +55,7 @@ export async function mountVolume(url: string, volumeName: string): Promise<stri
     errors.push(`osascript: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Strategy 2: mount_webdav with -S (suppress UI) and -i disabled
-  // Credentials go via the URL without userinfo since mount_webdav ignores it
-  try {
-    await exec(`mount_webdav -S "${bareUrl}" "${mountPoint}"`, { timeout: 30000 });
-    currentMountPoint = mountPoint;
-    return mountPoint;
-  } catch (err: unknown) {
-    errors.push(`mount_webdav: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
+  try { await fs.promises.rmdir(mountPoint); } catch { /* ignore */ }
   throw new Error(`Failed to mount WebDAV volume:\n${errors.join('\n')}`);
 }
 
@@ -87,13 +91,13 @@ async function isMountedAt(mountPoint: string): Promise<boolean> {
   }
 }
 
-async function findMountByPort(url: string): Promise<string | undefined> {
+async function findMountByUrl(url: string): Promise<string | undefined> {
   const portMatch = url.match(/:(\d+)/);
   if (!portMatch) return undefined;
 
   try {
     const { stdout } = await exec('mount');
-    const line = stdout.split('\n').find(l => l.includes(`localhost:${portMatch[1]}`));
+    const line = stdout.split('\n').find((l: string) => l.includes(`localhost:${portMatch[1]}`));
     if (line) {
       const match = line.match(/on\s+(.+?)\s+\(/);
       if (match) return match[1];
@@ -107,8 +111,9 @@ export async function cleanStaleMounts(): Promise<void> {
   try {
     const { stdout } = await exec('mount');
     for (const line of stdout.split('\n')) {
-      if (line.includes('tunnelfs-')) {
-        const match = line.match(/on\s+(.+?)\s+\(/);
+      if (line.includes('tunnelfs-') || line.includes('webdav') && line.includes('/Volumes/')) {
+        // Only clean up mounts that look like ours
+        const match = line.match(/on\s+(\/Volumes\/[^\s]+)\s+\(/);
         if (match) {
           try {
             await exec(`umount "${match[1]}"`, { timeout: 5000 });
@@ -117,8 +122,4 @@ export async function cleanStaleMounts(): Promise<void> {
       }
     }
   } catch { /* ignore */ }
-}
-
-export async function revealInFinder(localPath: string): Promise<void> {
-  await exec(`open -R "${localPath}"`);
 }
