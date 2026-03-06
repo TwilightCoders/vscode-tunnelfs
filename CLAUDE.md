@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TunnelMount is a VS Code extension that mounts remote filesystems in macOS Finder when connected via VS Code Remote Tunnels. It runs a local WebDAV server backed by `vscode.workspace.fs`, which transparently proxies remote file operations through the existing tunnel — no remote-side component needed.
+TunnelFS is a VS Code extension that mounts remote filesystems in macOS Finder when connected via VS Code Remote Tunnels. It runs a local WebDAV server backed by `vscode.workspace.fs`, which transparently proxies remote file operations through the existing tunnel — no remote-side component needed.
 
 ## Build Commands
 
@@ -24,7 +24,7 @@ To test: press F5 in VS Code to launch an Extension Development Host. The extens
 
 2. **`src/server.ts`** — Minimal WebDAV server (Node `http` module, no dependencies). Handles OPTIONS/PROPFIND/GET/HEAD. Backs all file operations with `vscode.workspace.fs` which transparently reads remote files through the tunnel. Generates Finder-compatible DAV XML responses. Session auth via random token + HTTP Basic Auth.
 
-3. **`src/mount.ts`** — macOS mount/unmount via `mount_webdav` (fallback: osascript). Mount point in `$TMPDIR/tunnelmount-<name>`. Handles stale mount cleanup on activation.
+3. **`src/mount.ts`** — macOS mount/unmount via `mount_webdav` (fallback: osascript). Mount point in `$TMPDIR/tunnelfs-<name>`. Handles stale mount cleanup on activation.
 
 ### Path Resolution
 
@@ -33,15 +33,15 @@ To test: press F5 in VS Code to launch an Extension Development Host. The extens
 
 ### Auth Model
 
-Random 32-byte hex token generated per session. Required via HTTP Basic Auth (`tunnelmount:<token>`). Credentials embedded in the mount URL. Localhost-only server binding.
+Random 32-byte hex token generated per session. Required via HTTP Basic Auth (`tunnelfs:<token>`). Credentials embedded in the mount URL. Localhost-only server binding.
 
 ## Extension Commands
 
 | Command | Description |
 |---------|-------------|
-| `tunnelmount.mount` | Mount remote filesystem in Finder |
-| `tunnelmount.unmount` | Unmount |
-| `tunnelmount.status` | Show mount state and port info |
+| `tunnelfs.mount` | Mount remote filesystem in Finder |
+| `tunnelfs.unmount` | Unmount |
+| `tunnelfs.status` | Show mount state and port info |
 
 ## Key Constraints
 

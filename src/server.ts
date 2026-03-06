@@ -47,9 +47,11 @@ export class WebDAVServer implements vscode.Disposable {
   private _port = 0;
   private readonly token: string;
   private readonly log: vscode.OutputChannel;
+  private readonly requireAuth: boolean;
 
-  constructor(outputChannel: vscode.OutputChannel) {
+  constructor(outputChannel: vscode.OutputChannel, requireAuth = false) {
     this.log = outputChannel;
+    this.requireAuth = requireAuth;
     this.token = crypto.randomBytes(32).toString('hex');
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res).catch(err => {
@@ -100,6 +102,7 @@ export class WebDAVServer implements vscode.Disposable {
   }
 
   private checkAuth(req: http.IncomingMessage): boolean {
+    if (!this.requireAuth) return true;
     const auth = req.headers.authorization;
     if (!auth?.startsWith('Basic ')) return false;
     const decoded = Buffer.from(auth.slice(6), 'base64').toString();
@@ -151,7 +154,7 @@ export class WebDAVServer implements vscode.Disposable {
     this.log.appendLine(`${req.method} ${req.url}`);
 
     if (!this.checkAuth(req)) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="TunnelMount"');
+      res.setHeader('WWW-Authenticate', 'Basic realm="TunnelFS"');
       res.writeHead(401);
       res.end('Unauthorized');
       return;

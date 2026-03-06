@@ -14,42 +14,45 @@ export function getMountPoint(): string | undefined {
 
 export async function mountVolume(url: string, volumeName: string): Promise<string> {
   const safeName = volumeName.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const mountPoint = path.join(os.tmpdir(), `tunnelmount-${safeName}`);
+  const mountPoint = path.join(os.tmpdir(), `tunnelfs-${safeName}`);
+  const errors: string[] = [];
 
   await fs.promises.mkdir(mountPoint, { recursive: true });
 
+  // Strip credentials from URL for mount_webdav (it doesn't support them inline)
+  const parsed = new URL(url);
+  const bareUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+
+  // Strategy 1: Finder's "Connect to Server" (handles credentials in URL)
   try {
-    // Prefer mount_webdav (standard macOS tool)
-    await exec(`mount_webdav "${url}" "${mountPoint}"`, { timeout: 30000 });
+    await exec(
+      `osascript -e 'mount volume "${url}"'`,
+      { timeout: 30000 },
+    );
+
+    // Give Finder a moment to register the mount
+    await new Promise(r => setTimeout(r, 1000));
+
+    const found = await findMountByPort(url);
+    if (found) {
+      currentMountPoint = found;
+      return found;
+    }
+  } catch (err: unknown) {
+    errors.push(`osascript: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Strategy 2: mount_webdav with -S (suppress UI) and -i disabled
+  // Credentials go via the URL without userinfo since mount_webdav ignores it
+  try {
+    await exec(`mount_webdav -S "${bareUrl}" "${mountPoint}"`, { timeout: 30000 });
     currentMountPoint = mountPoint;
     return mountPoint;
-  } catch {
-    // Fallback: Finder's "Connect to Server" via AppleScript
-    try {
-      await exec(
-        `osascript -e 'tell application "Finder" to mount volume "${url}"'`,
-        { timeout: 30000 },
-      );
-
-      // Find where Finder mounted it
-      const found = await findMountByPort(url);
-      if (found) {
-        currentMountPoint = found;
-        return found;
-      }
-
-      // If we can't find it, try the original mount point
-      if (await isMountedAt(mountPoint)) {
-        currentMountPoint = mountPoint;
-        return mountPoint;
-      }
-
-      throw new Error('Mount appeared to succeed but mount point could not be determined');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to mount WebDAV volume: ${msg}`);
-    }
+  } catch (err: unknown) {
+    errors.push(`mount_webdav: ${err instanceof Error ? err.message : String(err)}`);
   }
+
+  throw new Error(`Failed to mount WebDAV volume:\n${errors.join('\n')}`);
 }
 
 export async function unmountVolume(): Promise<void> {
@@ -104,7 +107,7 @@ export async function cleanStaleMounts(): Promise<void> {
   try {
     const { stdout } = await exec('mount');
     for (const line of stdout.split('\n')) {
-      if (line.includes('tunnelmount-')) {
+      if (line.includes('tunnelfs-')) {
         const match = line.match(/on\s+(.+?)\s+\(/);
         if (match) {
           try {

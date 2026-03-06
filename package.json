@@ -1,9 +1,14 @@
 {
-  "name": "tunnelmount",
-  "displayName": "TunnelMount",
+  "name": "tunnelfs",
+  "displayName": "TunnelFS",
   "description": "Mount remote filesystems in macOS Finder via VS Code Remote Tunnels",
   "version": "0.0.1",
   "publisher": "twilightcoders",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TwilightCoders/vscode-tunnelfs"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -20,20 +25,20 @@
   "contributes": {
     "commands": [
       {
-        "command": "tunnelmount.mount",
-        "title": "TunnelMount: Mount Remote Filesystem in Finder"
+        "command": "tunnelfs.mount",
+        "title": "TunnelFS: Mount Remote Filesystem in Finder"
       },
       {
-        "command": "tunnelmount.unmount",
-        "title": "TunnelMount: Unmount Remote Filesystem"
+        "command": "tunnelfs.unmount",
+        "title": "TunnelFS: Unmount Remote Filesystem"
       },
       {
-        "command": "tunnelmount.status",
-        "title": "TunnelMount: Show Connection Status"
+        "command": "tunnelfs.status",
+        "title": "TunnelFS: Show Connection Status"
       },
       {
-        "command": "tunnelmount.forceActivate",
-        "title": "TunnelMount: Force Activate (Debug)"
+        "command": "tunnelfs.forceActivate",
+        "title": "TunnelFS: Force Activate (Debug)"
       }
     ]
   },
